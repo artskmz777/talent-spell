@@ -27,6 +27,102 @@ export const DEFAULT_TEXT_ADJ: TextAdj = {
   age: { scale: 1, ox: 0, oy: 0 },
 };
 
+export type ParsedDate =
+  | { day: string; month: string; year: string; isCol: true }
+  | { raw: string; isCol: false };
+
+export function parseDateTokens(str: string): ParsedDate | null {
+  const trimmed = str.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length === 3) {
+    return { day: parts[0]!, month: parts[1]!, year: parts[2]!, isCol: true };
+  }
+  return { raw: trimmed, isCol: false };
+}
+
+export type DateColLayout = {
+  bornParsed: ParsedDate | null;
+  diedParsed: ParsedDate | null;
+  useColMode: boolean;
+  totalBlockW: number;
+  blockLeft: number;
+  colonX: number;
+  valStartX: number;
+  dayRightX: number;
+  monthStartX: number;
+  yearStartX: number;
+};
+
+export function computeDateLayout(
+  born: string,
+  died: string,
+  datesCx: number,
+  datesFs: number,
+  measureText: (txt: string, font: string) => number,
+): DateColLayout {
+  const bornParsed = parseDateTokens(born);
+  const diedParsed = parseDateTokens(died);
+
+  const fontLabel = `600 ${datesFs}px Sarabun, sans-serif`;
+  const fontVal = `700 ${datesFs}px Sarabun, sans-serif`;
+
+  const wChata = measureText("ชาตะ", fontLabel);
+  const wMorana = measureText("มรณะ", fontLabel);
+  const labelColW = Math.max(wChata, wMorana);
+  const colonW = measureText(":", fontLabel);
+  const labelColonGap = datesFs * 0.35;
+  const colonValGap = datesFs * 0.45;
+  const colGap = datesFs * 0.45;
+
+  const useColMode = (bornParsed?.isCol ?? false) || (diedParsed?.isCol ?? false);
+
+  let dayColW = datesFs * 1.3;
+  let monthColW = datesFs * 2.8;
+  let yearColW = datesFs * 2.3;
+  let valColW = 0;
+
+  if (useColMode) {
+    if (bornParsed?.isCol) {
+      dayColW = Math.max(dayColW, measureText(bornParsed.day, fontVal));
+      monthColW = Math.max(monthColW, measureText(bornParsed.month, fontVal));
+      yearColW = Math.max(yearColW, measureText(bornParsed.year, fontVal));
+    }
+    if (diedParsed?.isCol) {
+      dayColW = Math.max(dayColW, measureText(diedParsed.day, fontVal));
+      monthColW = Math.max(monthColW, measureText(diedParsed.month, fontVal));
+      yearColW = Math.max(yearColW, measureText(diedParsed.year, fontVal));
+    }
+    valColW = dayColW + colGap + monthColW + colGap + yearColW;
+  } else {
+    const w1 = bornParsed ? measureText(bornParsed.raw, fontVal) : 0;
+    const w2 = diedParsed ? measureText(diedParsed.raw, fontVal) : 0;
+    valColW = Math.max(w1, w2, datesFs * 6);
+  }
+
+  const totalBlockW = labelColW + labelColonGap + colonW + colonValGap + valColW;
+  const blockLeft = datesCx - totalBlockW / 2;
+  const colonX = blockLeft + labelColW + labelColonGap;
+  const valStartX = colonX + colonW + colonValGap;
+
+  const dayRightX = valStartX + dayColW;
+  const monthStartX = dayRightX + colGap;
+  const yearStartX = monthStartX + monthColW + colGap;
+
+  return {
+    bornParsed,
+    diedParsed,
+    useColMode,
+    totalBlockW,
+    blockLeft,
+    colonX,
+    valStartX,
+    dayRightX,
+    monthStartX,
+    yearStartX,
+  };
+}
+
 const STRETCH: [number, number][] = [[400, 440], [840, 880]];
 
 /** Maps base x (0..1280) to output x. Height scales uniformly; extra width goes into two plain strips. */
@@ -101,7 +197,7 @@ export function render(
   // --- Part 1: ชื่อ (Name) ---
   const nameTs = text.name.scale;
   const nameCx = baseCx + text.name.ox * W;
-  const nameY = baseTy + th * (hasAge ? 0.15 : 0.25) + text.name.oy * H;
+  const nameY = baseTy + th * (hasAge ? 0.18 : 0.22) + text.name.oy * H;
   const nameMaxW = Math.max(10, rw * 0.92 * nameTs);
 
   const fitName = (txt: string, size: number, weight: number) => {
@@ -114,10 +210,10 @@ export function render(
     return f;
   };
 
-  let nameFs = th * 0.2 * nameTs;
+  let nameFs = th * 0.26 * nameTs;
   let measuredNameW = nameMaxW * 0.6;
   if (info.name.trim()) {
-    nameFs = fitName(info.name, th * 0.2 * nameTs, 700);
+    nameFs = fitName(info.name, th * 0.26 * nameTs, 700);
     measuredNameW = Math.max(nameFs * 3, ctx.measureText(info.name).width);
     ctx.fillText(info.name, nameCx, nameY);
   }
@@ -128,45 +224,74 @@ export function render(
     h: nameFs * 1.6,
   };
 
-  // --- Part 2: ชาตะ - มรณะ (Born - Died Dates) ---
+  // --- Part 2: ชาตะ - มรณะ (Born - Died Dates with locked Day/Month/Year columns) ---
   const datesTs = text.dates.scale;
   const datesCx = baseCx + text.dates.ox * W;
   const datesOy = text.dates.oy * H;
-  const datesFs = th * 0.11 * datesTs;
-  const bornY = baseTy + th * (hasAge ? 0.6 : 0.6) + datesOy;
-  const diedY = baseTy + th * (hasAge ? 0.755 : 0.85) + datesOy;
+  const datesFs = th * 0.115 * datesTs;
+  const bornY = baseTy + th * (hasAge ? 0.50 : 0.58) + datesOy;
+  const diedY = baseTy + th * (hasAge ? 0.68 : 0.78) + datesOy;
 
-  const line = (label: string, val: string, y: number, cx: number, fs: number) => {
-    ctx.font = `600 ${fs}px Sarabun, sans-serif`;
+  const dateLayout = computeDateLayout(
+    info.born,
+    info.died,
+    datesCx,
+    datesFs,
+    (txt, font) => {
+      ctx.font = font;
+      return ctx.measureText(txt).width;
+    },
+  );
+
+  const renderDateRow = (
+    label: string,
+    parsed: ParsedDate | null,
+    y: number,
+  ) => {
+    if (!parsed) return;
+    // 1. Label ("ชาตะ" or "มรณะ")
+    ctx.font = `600 ${datesFs}px Sarabun, sans-serif`;
     ctx.textAlign = "left";
-    const left = cx - fs * 5.2;
-    ctx.fillText(label, left, y);
-    ctx.fillText(":", cx - fs * 2.2, y);
-    ctx.font = `700 ${fs}px Sarabun, sans-serif`;
-    const vx = cx - fs * 1.4;
-    ctx.fillText(val, vx, y);
-    ctx.textAlign = "center";
-    return { left, right: vx + ctx.measureText(val).width };
+    ctx.fillText(label, dateLayout.blockLeft, y);
+
+    // 2. Colon (":")
+    ctx.fillText(":", dateLayout.colonX, y);
+
+    // 3. Date content
+    ctx.font = `700 ${datesFs}px Sarabun, sans-serif`;
+    if (parsed.isCol) {
+      // Day (วัน) - right-aligned in day column for tabular alignment (1 vs 20)
+      ctx.textAlign = "right";
+      ctx.fillText(parsed.day, dateLayout.dayRightX, y);
+
+      // Month (เดือน) - left-aligned at column start
+      ctx.textAlign = "left";
+      ctx.fillText(parsed.month, dateLayout.monthStartX, y);
+
+      // Year (ปี) - left-aligned at column start
+      ctx.fillText(parsed.year, dateLayout.yearStartX, y);
+    } else {
+      ctx.textAlign = "left";
+      ctx.fillText(parsed.raw, dateLayout.valStartX, y);
+    }
   };
 
-  const bornBox = line("ชาตะ", info.born, bornY, datesCx, datesFs);
-  const diedBox = line("มรณะ", info.died, diedY, datesCx, datesFs);
-  const datesMinX = Math.min(bornBox.left, diedBox.left) - 10;
-  const datesMaxX = Math.max(bornBox.right, diedBox.right) + 10;
+  renderDateRow("ชาตะ", dateLayout.bornParsed, bornY);
+  renderDateRow("มรณะ", dateLayout.diedParsed, diedY);
+
   const datesBox: RectBox = {
-    x: datesMinX,
-    y: bornY - datesFs * 0.9,
-    w: Math.max(datesFs * 8, datesMaxX - datesMinX),
-    h: diedY - bornY + datesFs * 1.8,
+    x: dateLayout.blockLeft - 12,
+    y: bornY - datesFs * 0.85,
+    w: Math.max(datesFs * 8, dateLayout.totalBlockW + 24),
+    h: diedY - bornY + datesFs * 1.7,
   };
 
   // --- Part 3: สิริอายุ (Age) ---
-  // Default centered under the death line, plus its own independent ox / oy
-  const defaultAgeCx = (diedBox.left + diedBox.right) / 2;
+  const defaultAgeCx = datesCx;
   const ageCx = defaultAgeCx + text.age.ox * W;
-  const ageY = baseTy + th * 0.91 + text.age.oy * H;
+  const ageY = baseTy + th * (hasAge ? 0.86 : 0.86) + text.age.oy * H;
   const ageTs = text.age.scale;
-  const ageFs = th * 0.11 * ageTs;
+  const ageFs = th * 0.115 * ageTs;
   const ageMaxW = Math.max(10, rw * 0.92 * ageTs);
 
   const fitAge = (txt: string, size: number, weight: number) => {
@@ -181,7 +306,8 @@ export function render(
 
   let measuredAgeW = ageFs * 5;
   if (hasAge) {
-    const ageTxt = `สิริอายุ ${info.age} ปี`;
+    const cleanAge = info.age.trim().replace(/\s*ปี$/, "");
+    const ageTxt = `สิริอายุ ${cleanAge} ปี`;
     const actualAgeFs = fitAge(ageTxt, ageFs, 600);
     measuredAgeW = Math.max(actualAgeFs * 3, ctx.measureText(ageTxt).width);
     ctx.fillText(ageTxt, ageCx, ageY);
