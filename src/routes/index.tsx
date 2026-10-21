@@ -6,8 +6,28 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { FRAMES, SIZES, DPI, pixelSize } from "@/lib/frames";
-import { render, loadImage, setJpegDpi, type Crop, type TextAdj, type PhotoGeom } from "@/lib/render";
-import { Download, ImagePlus, RotateCcw, Lock, Unlock, AlignCenter, Move } from "lucide-react";
+import {
+  render,
+  loadImage,
+  setJpegDpi,
+  DEFAULT_TEXT_ADJ,
+  type Crop,
+  type TextAdj,
+  type PhotoGeom,
+} from "@/lib/render";
+import {
+  Download,
+  ImagePlus,
+  RotateCcw,
+  Lock,
+  Unlock,
+  AlignCenter,
+  Move,
+  User,
+  Calendar,
+  Clock,
+  Sparkles,
+} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -25,6 +45,8 @@ export const Route = createFileRoute("/")({
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
+type LayerType = "photo" | "name" | "dates" | "age";
+
 function Index() {
   const [frameId, setFrameId] = useState(1);
   const [sizeId, setSizeId] = useState("a4");
@@ -32,14 +54,23 @@ function Index() {
   const [frameImg, setFrameImg] = useState<HTMLImageElement | null>(null);
   const [crop, setCrop] = useState<Crop>({ zoom: 1, ox: 0, oy: 0 });
   const [frameScale, setFrameScale] = useState(1);
-  const [textAdj, setTextAdj] = useState<TextAdj>({ scale: 1, ox: 0, oy: 0 });
-  const [activeLayer, setActiveLayer] = useState<"photo" | "text">("photo");
 
-  // ค่าเริ่มต้นล็อคตำแหน่งไว้กึ่งกลาง
+  // ตัวอักษรแยกอิสระ 3 ส่วน: ชื่อ / ชาตะ-มรณะ / อายุ
+  const [textAdj, setTextAdj] = useState<TextAdj>(DEFAULT_TEXT_ADJ);
+
+  const [activeLayer, setActiveLayer] = useState<LayerType>("photo");
+
+  // ค่าเริ่มต้นล็อคตำแหน่งไว้กึ่งกลางสำหรับทุกส่วน
   const [photoLocked, setPhotoLocked] = useState(true);
-  const [textLocked, setTextLocked] = useState(true);
+  const [nameLocked, setNameLocked] = useState(true);
+  const [datesLocked, setDatesLocked] = useState(true);
+  const [ageLocked, setAgeLocked] = useState(true);
+
+  // ล็อคแกน X กึ่งกลาง (ลากเฉพาะแนวตั้ง)
   const [photoLockCenter, setPhotoLockCenter] = useState(false);
-  const [textLockCenter, setTextLockCenter] = useState(false);
+  const [nameLockCenter, setNameLockCenter] = useState(false);
+  const [datesLockCenter, setDatesLockCenter] = useState(false);
+  const [ageLockCenter, setAgeLockCenter] = useState(false);
 
   const [toast, setToast] = useState<{ text: string; actionText?: string | undefined; onAction?: (() => void) | undefined } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,8 +85,9 @@ function Index() {
   const geomRef = useRef<PhotoGeom | null>(null);
   const photoRef = useRef<HTMLImageElement | null>(photo);
   photoRef.current = photo;
+
   const dragRef = useRef<{
-    target: "photo" | "text";
+    target: LayerType;
     x: number;
     y: number;
     crop: Crop;
@@ -68,14 +100,24 @@ function Index() {
   textAdjRef.current = textAdj;
   const activeLayerRef = useRef(activeLayer);
   activeLayerRef.current = activeLayer;
+
   const photoLockedRef = useRef(photoLocked);
   photoLockedRef.current = photoLocked;
-  const textLockedRef = useRef(textLocked);
-  textLockedRef.current = textLocked;
+  const nameLockedRef = useRef(nameLocked);
+  nameLockedRef.current = nameLocked;
+  const datesLockedRef = useRef(datesLocked);
+  datesLockedRef.current = datesLocked;
+  const ageLockedRef = useRef(ageLocked);
+  ageLockedRef.current = ageLocked;
+
   const photoLockCenterRef = useRef(photoLockCenter);
   photoLockCenterRef.current = photoLockCenter;
-  const textLockCenterRef = useRef(textLockCenter);
-  textLockCenterRef.current = textLockCenter;
+  const nameLockCenterRef = useRef(nameLockCenter);
+  nameLockCenterRef.current = nameLockCenter;
+  const datesLockCenterRef = useRef(datesLockCenter);
+  datesLockCenterRef.current = datesLockCenter;
+  const ageLockCenterRef = useRef(ageLockCenter);
+  ageLockCenterRef.current = ageLockCenter;
 
   const frame = FRAMES.find((f) => f.id === frameId)!;
   const size = SIZES.find((s) => s.id === sizeId)!;
@@ -108,7 +150,10 @@ function Index() {
     scaleRef.current = H / px.h;
     const ctx = c.getContext("2d")!;
     geomRef.current = render(ctx, W, H, frame, frameImg, photo, crop, {
-      name: info.name || "ชื่อ - นามสกุล", born: info.born || "วัน เดือน ปี", died: info.died || "วัน เดือน ปี", age: info.age,
+      name: info.name || "ชื่อ - นามสกุล",
+      born: info.born || "วัน เดือน ปี",
+      died: info.died || "วัน เดือน ปี",
+      age: info.age,
     }, showCrop, frameScale, textAdj);
   }, [frame, frameImg, photo, crop, info, px.w, px.h, showCrop, fontReady, frameScale, textAdj]);
 
@@ -121,7 +166,7 @@ function Index() {
     return { x, y };
   };
 
-  const isInside = (pt: { x: number; y: number }, box?: { x: number; y: number; w: number; h: number }, pad = 12) => {
+  const isInside = (pt: { x: number; y: number }, box?: { x: number; y: number; w: number; h: number }, pad = 10) => {
     if (!box) return false;
     return pt.x >= box.x - pad && pt.x <= box.x + box.w + pad &&
            pt.y >= box.y - pad && pt.y <= box.y + box.h + pad;
@@ -150,11 +195,15 @@ function Index() {
       if (!g) return;
       const pt = getCanvasCoord(e, c);
 
-      // Hit testing: did user click text or photo?
-      let target: "photo" | "text" | null = null;
-      if (isInside(pt, g.textBox, 14)) {
-        target = "text";
-      } else if (isInside(pt, g.photoBox, 14)) {
+      // Hit testing: ตรวจสอบว่าคลิกส่วนไหน 1.ชื่อ 2.ชาตะ-มรณะ 3.อายุ 4.รูปภาพ
+      let target: LayerType | null = null;
+      if (isInside(pt, g.nameBox, 8)) {
+        target = "name";
+      } else if (isInside(pt, g.datesBox, 8)) {
+        target = "dates";
+      } else if (isInside(pt, g.ageBox, 8)) {
+        target = "age";
+      } else if (isInside(pt, g.photoBox, 8)) {
         target = "photo";
       }
 
@@ -163,7 +212,7 @@ function Index() {
       setActiveLayer(target);
       activeLayerRef.current = target;
 
-      // Check lock state
+      // ตรวจสอบสถานะล็อคของส่วนนั้นๆ
       if (target === "photo") {
         if (!photoRef.current) return;
         if (photoLockedRef.current) {
@@ -173,13 +222,30 @@ function Index() {
           });
           return;
         }
-      }
-      if (target === "text" && textLockedRef.current) {
-        showToast("🔒 ตำแหน่งข้อความถูกล็อคไว้กึ่งกลาง", "ปลดล็อค", () => {
-          setTextLocked(false);
-          textLockedRef.current = false;
-        });
-        return;
+      } else if (target === "name") {
+        if (nameLockedRef.current) {
+          showToast("🔒 ตำแหน่งชื่อถูกล็อคไว้กึ่งกลาง", "ปลดล็อค", () => {
+            setNameLocked(false);
+            nameLockedRef.current = false;
+          });
+          return;
+        }
+      } else if (target === "dates") {
+        if (datesLockedRef.current) {
+          showToast("🔒 ตำแหน่งชาตะ-มรณะถูกล็อคไว้กึ่งกลาง", "ปลดล็อค", () => {
+            setDatesLocked(false);
+            datesLockedRef.current = false;
+          });
+          return;
+        }
+      } else if (target === "age") {
+        if (ageLockedRef.current) {
+          showToast("🔒 ตำแหน่งสิริอายุถูกล็อคไว้กึ่งกลาง", "ปลดล็อค", () => {
+            setAgeLocked(false);
+            ageLockedRef.current = false;
+          });
+          return;
+        }
       }
 
       dragRef.current = {
@@ -187,7 +253,11 @@ function Index() {
         x: e.clientX,
         y: e.clientY,
         crop: { ...cropRef.current },
-        text: { ...textAdjRef.current },
+        text: {
+          name: { ...textAdjRef.current.name },
+          dates: { ...textAdjRef.current.dates },
+          age: { ...textAdjRef.current.age },
+        },
       };
       c.setPointerCapture(e.pointerId);
     };
@@ -197,9 +267,13 @@ function Index() {
       if (!d) {
         if (!g) return;
         const pt = getCanvasCoord(e, c);
-        if (isInside(pt, g.textBox, 14)) {
-          c.style.cursor = textLockedRef.current ? "not-allowed" : "grab";
-        } else if (isInside(pt, g.photoBox, 14)) {
+        if (isInside(pt, g.nameBox, 8)) {
+          c.style.cursor = nameLockedRef.current ? "not-allowed" : "grab";
+        } else if (isInside(pt, g.datesBox, 8)) {
+          c.style.cursor = datesLockedRef.current ? "not-allowed" : "grab";
+        } else if (isInside(pt, g.ageBox, 8)) {
+          c.style.cursor = ageLockedRef.current ? "not-allowed" : "grab";
+        } else if (isInside(pt, g.photoBox, 8)) {
           c.style.cursor = !photoRef.current ? "default" : (photoLockedRef.current ? "not-allowed" : "grab");
         } else {
           c.style.cursor = "default";
@@ -212,6 +286,7 @@ function Index() {
       const rect = c.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       const ratio = c.width / rect.width;
+
       if (d.target === "photo") {
         const nox = d.crop.ox + ((e.clientX - d.x) * ratio) / (g.rw / 2);
         const noy = d.crop.oy + ((e.clientY - d.y) * ratio) / (g.rh / 2);
@@ -220,13 +295,38 @@ function Index() {
           ox: photoLockCenterRef.current ? 0 : clamp(nox, -4, 4),
           oy: clamp(noy, -4, 4),
         }));
-      } else {
-        const nox = d.text.ox + ((e.clientX - d.x) * ratio) / c.width;
-        const noy = d.text.oy + ((e.clientY - d.y) * ratio) / c.height;
+      } else if (d.target === "name") {
+        const nox = d.text.name.ox + ((e.clientX - d.x) * ratio) / c.width;
+        const noy = d.text.name.oy + ((e.clientY - d.y) * ratio) / c.height;
         setTextAdj((p) => ({
           ...p,
-          ox: textLockCenterRef.current ? 0 : clamp(nox, -0.8, 0.8),
-          oy: clamp(noy, -0.8, 0.8),
+          name: {
+            ...p.name,
+            ox: nameLockCenterRef.current ? 0 : clamp(nox, -0.8, 0.8),
+            oy: clamp(noy, -0.8, 0.8),
+          },
+        }));
+      } else if (d.target === "dates") {
+        const nox = d.text.dates.ox + ((e.clientX - d.x) * ratio) / c.width;
+        const noy = d.text.dates.oy + ((e.clientY - d.y) * ratio) / c.height;
+        setTextAdj((p) => ({
+          ...p,
+          dates: {
+            ...p.dates,
+            ox: datesLockCenterRef.current ? 0 : clamp(nox, -0.8, 0.8),
+            oy: clamp(noy, -0.8, 0.8),
+          },
+        }));
+      } else if (d.target === "age") {
+        const nox = d.text.age.ox + ((e.clientX - d.x) * ratio) / c.width;
+        const noy = d.text.age.oy + ((e.clientY - d.y) * ratio) / c.height;
+        setTextAdj((p) => ({
+          ...p,
+          age: {
+            ...p.age,
+            ox: ageLockCenterRef.current ? 0 : clamp(nox, -0.8, 0.8),
+            oy: clamp(noy, -0.8, 0.8),
+          },
         }));
       }
     };
@@ -263,25 +363,43 @@ function Index() {
     });
   };
 
+  // จัดกึ่งกลางแต่ละส่วน
   const centerPhoto = () => {
     setCrop((p) => ({ ...p, ox: 0, oy: 0 }));
     showToast("จัดตำแหน่งรูปภาพไว้กึ่งกลางเรียบร้อย");
   };
 
-  const centerText = () => {
-    setTextAdj((p) => ({ ...p, ox: 0, oy: 0 }));
-    showToast("จัดตำแหน่งตัวอักษรไว้กึ่งกลางเรียบร้อย");
+  const centerName = () => {
+    setTextAdj((p) => ({ ...p, name: { ...p.name, ox: 0, oy: 0 } }));
+    showToast("จัดตำแหน่งชื่อไว้กึ่งกลางเรียบร้อย");
+  };
+
+  const centerDates = () => {
+    setTextAdj((p) => ({ ...p, dates: { ...p.dates, ox: 0, oy: 0 } }));
+    showToast("จัดตำแหน่งชาตะ-มรณะไว้กึ่งกลางเรียบร้อย");
+  };
+
+  const centerAge = () => {
+    setTextAdj((p) => ({ ...p, age: { ...p.age, ox: 0, oy: 0 } }));
+    showToast("จัดตำแหน่งสิริอายุไว้กึ่งกลางเรียบร้อย");
   };
 
   const resetAll = () => {
     setCrop({ zoom: 1, ox: 0, oy: 0 });
-    setTextAdj({ scale: 1, ox: 0, oy: 0 });
+    setTextAdj(DEFAULT_TEXT_ADJ);
     setFrameScale(1);
+
     setPhotoLocked(true);
-    setTextLocked(true);
+    setNameLocked(true);
+    setDatesLocked(true);
+    setAgeLocked(true);
+
     setPhotoLockCenter(false);
-    setTextLockCenter(false);
-    showToast("รีเซ็ตตำแหน่งกลับสู่กึ่งกลางและล็อคเรียบร้อย");
+    setNameLockCenter(false);
+    setDatesLockCenter(false);
+    setAgeLockCenter(false);
+
+    showToast("รีเซ็ตทุกตำแหน่งกลับสู่กึ่งกลางและล็อคเรียบร้อย");
   };
 
   const save = async () => {
@@ -304,6 +422,66 @@ function Index() {
   };
 
   const set = (k: keyof typeof info) => (e: React.ChangeEvent<HTMLInputElement>) => setInfo({ ...info, [k]: e.target.value });
+
+  // ข้อมูล active layer สำหรับแถบควบคุมด้านบน
+  const getActiveLayerInfo = () => {
+    switch (activeLayer) {
+      case "photo":
+        return {
+          title: "รูปภาพ",
+          locked: photoLocked,
+          toggleLock: () => {
+            const next = !photoLocked;
+            setPhotoLocked(next);
+            showToast(next ? "🔒 ล็อคตำแหน่งรูปภาพแล้ว" : "🔓 ปลดล็อคตำแหน่งรูปภาพแล้ว ลากได้อิสระ");
+          },
+          center: centerPhoto,
+          lockCenter: photoLockCenter,
+          setLockCenter: setPhotoLockCenter,
+        };
+      case "name":
+        return {
+          title: "ชื่อ",
+          locked: nameLocked,
+          toggleLock: () => {
+            const next = !nameLocked;
+            setNameLocked(next);
+            showToast(next ? "🔒 ล็อคตำแหน่งชื่อแล้ว" : "🔓 ปลดล็อคตำแหน่งชื่อแล้ว ลากได้อิสระ");
+          },
+          center: centerName,
+          lockCenter: nameLockCenter,
+          setLockCenter: setNameLockCenter,
+        };
+      case "dates":
+        return {
+          title: "ชาตะ-มรณะ",
+          locked: datesLocked,
+          toggleLock: () => {
+            const next = !datesLocked;
+            setDatesLocked(next);
+            showToast(next ? "🔒 ล็อคตำแหน่งชาตะ-มรณะแล้ว" : "🔓 ปลดล็อคตำแหน่งชาตะ-มรณะแล้ว ลากได้อิสระ");
+          },
+          center: centerDates,
+          lockCenter: datesLockCenter,
+          setLockCenter: setDatesLockCenter,
+        };
+      case "age":
+        return {
+          title: "สิริอายุ",
+          locked: ageLocked,
+          toggleLock: () => {
+            const next = !ageLocked;
+            setAgeLocked(next);
+            showToast(next ? "🔒 ล็อคตำแหน่งสิริอายุแล้ว" : "🔓 ปลดล็อคตำแหน่งสิริอายุแล้ว ลากได้อิสระ");
+          },
+          center: centerAge,
+          lockCenter: ageLockCenter,
+          setLockCenter: setAgeLockCenter,
+        };
+    }
+  };
+
+  const curLayer = getActiveLayerInfo();
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -365,82 +543,83 @@ function Index() {
         <section className="space-y-4">
           {/* Quick Toolbar above Canvas */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-sm text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground">เลเยอร์:</span>
-              <div className="flex overflow-hidden rounded-md border border-border">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground mr-1">เลือกส่วนที่จะปรับ:</span>
+              <div className="flex flex-wrap gap-1">
                 <button
                   type="button"
                   onClick={() => setActiveLayer("photo")}
-                  className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium transition-colors ${
-                    activeLayer === "photo" ? "bg-primary text-primary-foreground" : "bg-card hover:bg-muted"
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-all ${
+                    activeLayer === "photo"
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-muted/50 border-transparent hover:bg-muted"
                   }`}
                 >
                   {photoLocked ? <Lock className="h-3 w-3 text-amber-500" /> : <Unlock className="h-3 w-3 text-emerald-500" />}
                   รูปภาพ
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => setActiveLayer("text")}
-                  className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium transition-colors ${
-                    activeLayer === "text" ? "bg-primary text-primary-foreground" : "bg-card hover:bg-muted"
+                  onClick={() => setActiveLayer("name")}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-all ${
+                    activeLayer === "name"
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-muted/50 border-transparent hover:bg-muted"
                   }`}
                 >
-                  {textLocked ? <Lock className="h-3 w-3 text-amber-500" /> : <Unlock className="h-3 w-3 text-emerald-500" />}
-                  ตัวอักษร
+                  {nameLocked ? <Lock className="h-3 w-3 text-amber-500" /> : <Unlock className="h-3 w-3 text-emerald-500" />}
+                  ชื่อ
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveLayer("dates")}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-all ${
+                    activeLayer === "dates"
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-muted/50 border-transparent hover:bg-muted"
+                  }`}
+                >
+                  {datesLocked ? <Lock className="h-3 w-3 text-amber-500" /> : <Unlock className="h-3 w-3 text-emerald-500" />}
+                  ชาตะ-มรณะ
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveLayer("age")}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-all ${
+                    activeLayer === "age"
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-muted/50 border-transparent hover:bg-muted"
+                  }`}
+                >
+                  {ageLocked ? <Lock className="h-3 w-3 text-amber-500" /> : <Unlock className="h-3 w-3 text-emerald-500" />}
+                  สิริอายุ
                 </button>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              {activeLayer === "photo" ? (
-                <>
-                  <Button
-                    type="button"
-                    variant={photoLocked ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => {
-                      setPhotoLocked(!photoLocked);
-                      showToast(photoLocked ? "🔓 ปลดล็อคตำแหน่งรูปภาพแล้ว ลากได้อิสระ" : "🔒 ล็อคตำแหน่งรูปภาพแล้ว");
-                    }}
-                    className={`h-8 text-xs ${
-                      photoLocked
-                        ? "bg-amber-600 hover:bg-amber-700 text-white"
-                        : "border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-                    }`}
-                  >
-                    {photoLocked ? <Lock className="h-3.5 w-3.5 mr-1" /> : <Unlock className="h-3.5 w-3.5 mr-1" />}
-                    {photoLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={centerPhoto} className="h-8 text-xs">
-                    <AlignCenter className="h-3.5 w-3.5 mr-1" />
-                    จัดกึ่งกลาง
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    variant={textLocked ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => {
-                      setTextLocked(!textLocked);
-                      showToast(textLocked ? "🔓 ปลดล็อคตำแหน่งข้อความแล้ว ลากได้อิสระ" : "🔒 ล็อคตำแหน่งข้อความแล้ว");
-                    }}
-                    className={`h-8 text-xs ${
-                      textLocked
-                        ? "bg-amber-600 hover:bg-amber-700 text-white"
-                        : "border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-                    }`}
-                  >
-                    {textLocked ? <Lock className="h-3.5 w-3.5 mr-1" /> : <Unlock className="h-3.5 w-3.5 mr-1" />}
-                    {textLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={centerText} className="h-8 text-xs">
-                    <AlignCenter className="h-3.5 w-3.5 mr-1" />
-                    จัดกึ่งกลาง
-                  </Button>
-                </>
-              )}
+              <Button
+                type="button"
+                variant={curLayer.locked ? "default" : "outline"}
+                size="sm"
+                onClick={curLayer.toggleLock}
+                className={`h-8 text-xs ${
+                  curLayer.locked
+                    ? "bg-amber-600 hover:bg-amber-700 text-white"
+                    : "border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+                }`}
+              >
+                {curLayer.locked ? <Lock className="h-3.5 w-3.5 mr-1" /> : <Unlock className="h-3.5 w-3.5 mr-1" />}
+                {curLayer.locked ? `ล็อค (${curLayer.title})` : `ปลดล็อค (${curLayer.title})`}
+              </Button>
+
+              <Button type="button" variant="outline" size="sm" onClick={curLayer.center} className="h-8 text-xs">
+                <AlignCenter className="h-3.5 w-3.5 mr-1" />
+                จัดกึ่งกลาง
+              </Button>
             </div>
           </div>
 
@@ -466,8 +645,8 @@ function Index() {
               </div>
             )}
 
-            {/* Floating Status Badges */}
-            <div className="absolute top-6 left-6 z-20 flex flex-col sm:flex-row gap-2 pointer-events-auto">
+            {/* Floating Status Badges for all 4 parts */}
+            <div className="absolute top-6 left-6 z-20 flex flex-wrap gap-1.5 pointer-events-auto max-w-[85%]">
               <button
                 type="button"
                 onClick={() => {
@@ -476,34 +655,72 @@ function Index() {
                   setPhotoLocked(next);
                   showToast(next ? "🔒 ล็อคตำแหน่งรูปภาพแล้ว" : "🔓 ปลดล็อคตำแหน่งรูปภาพแล้ว ลากได้อิสระ");
                 }}
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium shadow-md backdrop-blur transition-all ${
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shadow-md backdrop-blur transition-all ${
                   photoLocked
                     ? "bg-card/90 text-amber-700 dark:text-amber-300 border border-amber-500/40 hover:bg-card"
                     : "bg-card/90 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 hover:bg-card"
                 }`}
-                title="คลิกเพื่อล็อค/ปลดล็อครูปภาพ"
+                title="คลิกเพื่อสลับล็อครูปภาพ"
               >
-                {photoLocked ? <Lock className="h-3.5 w-3.5 text-amber-600" /> : <Unlock className="h-3.5 w-3.5 text-emerald-600" />}
-                <span>ภาพ: {photoLocked ? "ล็อคกึ่งกลาง" : "ลากอิสระ"}</span>
+                {photoLocked ? <Lock className="h-3 w-3 text-amber-600" /> : <Unlock className="h-3 w-3 text-emerald-600" />}
+                <span>ภาพ: {photoLocked ? "ล็อค" : "อิสระ"}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  setActiveLayer("text");
-                  const next = !textLocked;
-                  setTextLocked(next);
-                  showToast(next ? "🔒 ล็อคตำแหน่งข้อความแล้ว" : "🔓 ปลดล็อคตำแหน่งข้อความแล้ว ลากได้อิสระ");
+                  setActiveLayer("name");
+                  const next = !nameLocked;
+                  setNameLocked(next);
+                  showToast(next ? "🔒 ล็อคตำแหน่งชื่อแล้ว" : "🔓 ปลดล็อคตำแหน่งชื่อแล้ว ลากได้อิสระ");
                 }}
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium shadow-md backdrop-blur transition-all ${
-                  textLocked
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shadow-md backdrop-blur transition-all ${
+                  nameLocked
                     ? "bg-card/90 text-amber-700 dark:text-amber-300 border border-amber-500/40 hover:bg-card"
                     : "bg-card/90 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 hover:bg-card"
                 }`}
-                title="คลิกเพื่อล็อค/ปลดล็อคตัวอักษร"
+                title="คลิกเพื่อสลับล็อคชื่อ"
               >
-                {textLocked ? <Lock className="h-3.5 w-3.5 text-amber-600" /> : <Unlock className="h-3.5 w-3.5 text-emerald-600" />}
-                <span>ข้อความ: {textLocked ? "ล็อคกึ่งกลาง" : "ลากอิสระ"}</span>
+                {nameLocked ? <Lock className="h-3 w-3 text-amber-600" /> : <Unlock className="h-3 w-3 text-emerald-600" />}
+                <span>ชื่อ: {nameLocked ? "ล็อค" : "อิสระ"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveLayer("dates");
+                  const next = !datesLocked;
+                  setDatesLocked(next);
+                  showToast(next ? "🔒 ล็อคตำแหน่งชาตะ-มรณะแล้ว" : "🔓 ปลดล็อคตำแหน่งชาตะ-มรณะแล้ว ลากได้อิสระ");
+                }}
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shadow-md backdrop-blur transition-all ${
+                  datesLocked
+                    ? "bg-card/90 text-amber-700 dark:text-amber-300 border border-amber-500/40 hover:bg-card"
+                    : "bg-card/90 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 hover:bg-card"
+                }`}
+                title="คลิกเพื่อสลับล็อคชาตะ-มรณะ"
+              >
+                {datesLocked ? <Lock className="h-3 w-3 text-amber-600" /> : <Unlock className="h-3 w-3 text-emerald-600" />}
+                <span>ชาตะ-มรณะ: {datesLocked ? "ล็อค" : "อิสระ"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveLayer("age");
+                  const next = !ageLocked;
+                  setAgeLocked(next);
+                  showToast(next ? "🔒 ล็อคตำแหน่งสิริอายุแล้ว" : "🔓 ปลดล็อคตำแหน่งสิริอายุแล้ว ลากได้อิสระ");
+                }}
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shadow-md backdrop-blur transition-all ${
+                  ageLocked
+                    ? "bg-card/90 text-amber-700 dark:text-amber-300 border border-amber-500/40 hover:bg-card"
+                    : "bg-card/90 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 hover:bg-card"
+                }`}
+                title="คลิกเพื่อสลับล็อคสิริอายุ"
+              >
+                {ageLocked ? <Lock className="h-3 w-3 text-amber-600" /> : <Unlock className="h-3 w-3 text-emerald-600" />}
+                <span>อายุ: {ageLocked ? "ล็อค" : "อิสระ"}</span>
               </button>
             </div>
 
@@ -517,13 +734,13 @@ function Index() {
           <div className="space-y-5 rounded-xl border border-border bg-card p-5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
               <div>
-                <h2 className="font-semibold text-base">ปรับแต่งตำแหน่ง ขนาด และกรอบ</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">คลิกบนผืนผ้าใบเพื่อเลือกและลากย้ายตำแหน่งอย่างอิสระ (หรือใช้แถบเลื่อนด้านล่าง)</p>
+                <h2 className="font-semibold text-base">ปรับแต่งแยกอิสระ (รูป / ชื่อ / ชาตะ-มรณะ / อายุ)</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">คลิกบนผืนผ้าใบหรือใช้แถบเลื่อนด้านล่างเพื่อปรับตำแหน่งและขนาดของแต่ละส่วนแยกขาดจากกัน</p>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <div className="flex items-center gap-1.5">
                   <Switch checked={showCrop} onCheckedChange={setShowCrop} id="sc" />
-                  <Label htmlFor="sc" className="cursor-pointer text-xs">แสดงเส้นครอป</Label>
+                  <Label htmlFor="sc" className="cursor-pointer text-xs">แสดงกรอบตำแหน่ง</Label>
                 </div>
                 <Button variant="ghost" size="sm" onClick={resetAll} className="h-8 text-xs text-muted-foreground hover:text-foreground">
                   <RotateCcw className="h-3.5 w-3.5 mr-1" />
@@ -532,151 +749,345 @@ function Index() {
               </div>
             </div>
 
+            {/* Segmented Layer Tabs for detailed adjustment */}
+            <div className="flex flex-wrap gap-1 p-1 bg-muted rounded-lg border border-border text-xs">
+              <button
+                type="button"
+                onClick={() => setActiveLayer("photo")}
+                className={`flex-1 min-w-[100px] py-2 px-3 rounded-md font-medium text-center transition-all ${
+                  activeLayer === "photo" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                🖼️ รูปภาพ
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveLayer("name")}
+                className={`flex-1 min-w-[100px] py-2 px-3 rounded-md font-medium text-center transition-all ${
+                  activeLayer === "name" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                👤 1. ชื่อผู้วายชนม์
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveLayer("dates")}
+                className={`flex-1 min-w-[100px] py-2 px-3 rounded-md font-medium text-center transition-all ${
+                  activeLayer === "dates" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                📅 2. ชาตะ - มรณะ
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveLayer("age")}
+                className={`flex-1 min-w-[100px] py-2 px-3 rounded-md font-medium text-center transition-all ${
+                  activeLayer === "age" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                ⏳ 3. สิริอายุ
+              </button>
+            </div>
+
             {/* Section: Photo Controls */}
-            <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm flex items-center gap-1.5">
-                    <Move className="h-4 w-4 text-primary" />
-                    ตำแหน่งและขนาดรูปภาพ
-                  </span>
-                  <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
-                    photoLocked ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                  }`}>
-                    {photoLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-                    {photoLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
-                  </span>
+            {activeLayer === "photo" && (
+              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm flex items-center gap-1.5">
+                      <Move className="h-4 w-4 text-primary" />
+                      ตำแหน่งและขนาดรูปภาพ
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
+                      photoLocked ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                    }`}>
+                      {photoLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                      {photoLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={photoLocked ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => {
+                        const next = !photoLocked;
+                        setPhotoLocked(next);
+                        showToast(next ? "🔒 ล็อคตำแหน่งรูปภาพแล้ว" : "🔓 ปลดล็อคตำแหน่งรูปภาพแล้ว ลากได้อิสระ");
+                      }}
+                      className="h-7 text-xs"
+                    >
+                      {photoLocked ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
+                      {photoLocked ? "ปลดล็อคเพื่อย้าย" : "ล็อคตำแหน่ง"}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={centerPhoto} className="h-7 text-xs">
+                      <AlignCenter className="h-3 w-3 mr-1" />
+                      จัดกึ่งกลาง
+                    </Button>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none ml-1">
+                      <Switch checked={photoLockCenter} onCheckedChange={setPhotoLockCenter} disabled={photoLocked} id="plc" />
+                      <Label htmlFor="plc" className="cursor-pointer text-xs">ล็อคแกน X</Label>
+                    </label>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant={photoLocked ? "outline" : "default"}
-                    size="sm"
-                    onClick={() => {
-                      const next = !photoLocked;
-                      setPhotoLocked(next);
-                      showToast(next ? "🔒 ล็อคตำแหน่งรูปภาพแล้ว" : "🔓 ปลดล็อคตำแหน่งรูปภาพแล้ว ลากได้อิสระ");
-                    }}
-                    className="h-7 text-xs"
-                  >
-                    {photoLocked ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
-                    {photoLocked ? "ปลดล็อคเพื่อย้าย" : "ล็อคตำแหน่ง"}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={centerPhoto} className="h-7 text-xs">
-                    <AlignCenter className="h-3 w-3 mr-1" />
-                    จัดกึ่งกลาง
-                  </Button>
-                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none ml-1">
-                    <Switch checked={photoLockCenter} onCheckedChange={setPhotoLockCenter} disabled={photoLocked} id="plc" />
-                    <Label htmlFor="plc" className="cursor-pointer text-xs">ล็อคแกน X กึ่งกลาง</Label>
-                  </label>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3 pt-1">
-                <Label className="text-xs">ขนาดรูป (ซูม)</Label>
-                <Slider disabled={!photo} min={0.5} max={4} step={0.01} value={[crop.zoom]}
-                  onValueChange={([v]) => setCrop((p) => ({ ...p, zoom: v ?? 1 }))} />
-                <Input type="number" disabled={!photo} min={0.5} max={4} step={0.01} value={crop.zoom}
-                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCrop((p) => ({ ...p, zoom: clamp(v, 0.5, 4) })); }}
-                  className="h-7 px-2 text-center text-xs" />
-              </div>
-
-              <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
-                <div className="flex flex-col">
-                  <Label className={`text-xs ${photoLocked || photoLockCenter ? "text-muted-foreground" : ""}`}>รูป ซ้าย–ขวา (X)</Label>
-                  {photoLockCenter && !photoLocked && <span className="text-[10px] text-amber-600 dark:text-amber-400">ล็อคกึ่งกลาง X</span>}
-                </div>
-                <Slider disabled={!photo || photoLocked || photoLockCenter} min={-3} max={3} step={0.01} value={[crop.ox]}
-                  onValueChange={([v]) => setCrop((p) => ({ ...p, ox: v ?? 0 }))} />
-                <Input type="number" disabled={!photo || photoLocked || photoLockCenter} min={-3} max={3} step={0.01} value={Math.round(crop.ox * 100) / 100}
-                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCrop((p) => ({ ...p, ox: clamp(v, -3, 3) })); }}
-                  className="h-7 px-2 text-center text-xs" />
-              </div>
-
-              <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
-                <Label className={`text-xs ${photoLocked ? "text-muted-foreground" : ""}`}>รูป บน–ล่าง (Y)</Label>
-                <Slider disabled={!photo || photoLocked} min={-3} max={3} step={0.01} value={[crop.oy]}
-                  onValueChange={([v]) => setCrop((p) => ({ ...p, oy: v ?? 0 }))} />
-                <Input type="number" disabled={!photo || photoLocked} min={-3} max={3} step={0.01} value={Math.round(crop.oy * 100) / 100}
-                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCrop((p) => ({ ...p, oy: clamp(v, -3, 3) })); }}
-                  className="h-7 px-2 text-center text-xs" />
-              </div>
-            </div>
-
-            {/* Section: Text Controls */}
-            <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm flex items-center gap-1.5">
-                    <Move className="h-4 w-4 text-primary" />
-                    ตำแหน่งและขนาดตัวอักษร
-                  </span>
-                  <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
-                    textLocked ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                  }`}>
-                    {textLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-                    {textLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
-                  </span>
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3 pt-1">
+                  <Label className="text-xs">ขนาดรูป (ซูม)</Label>
+                  <Slider disabled={!photo} min={0.5} max={4} step={0.01} value={[crop.zoom]}
+                    onValueChange={([v]) => setCrop((p) => ({ ...p, zoom: v ?? 1 }))} />
+                  <Input type="number" disabled={!photo} min={0.5} max={4} step={0.01} value={crop.zoom}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCrop((p) => ({ ...p, zoom: clamp(v, 0.5, 4) })); }}
+                    className="h-7 px-2 text-center text-xs" />
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant={textLocked ? "outline" : "default"}
-                    size="sm"
-                    onClick={() => {
-                      const next = !textLocked;
-                      setTextLocked(next);
-                      showToast(next ? "🔒 ล็อคตำแหน่งข้อความแล้ว" : "🔓 ปลดล็อคตำแหน่งข้อความแล้ว ลากได้อิสระ");
-                    }}
-                    className="h-7 text-xs"
-                  >
-                    {textLocked ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
-                    {textLocked ? "ปลดล็อคเพื่อย้าย" : "ล็อคตำแหน่ง"}
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={centerText} className="h-7 text-xs">
-                    <AlignCenter className="h-3 w-3 mr-1" />
-                    จัดกึ่งกลาง
-                  </Button>
-                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none ml-1">
-                    <Switch checked={textLockCenter} onCheckedChange={setTextLockCenter} disabled={textLocked} id="tlc" />
-                    <Label htmlFor="tlc" className="cursor-pointer text-xs">ล็อคแกน X กึ่งกลาง</Label>
-                  </label>
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <div className="flex flex-col">
+                    <Label className={`text-xs ${photoLocked || photoLockCenter ? "text-muted-foreground" : ""}`}>รูป ซ้าย–ขวา (X)</Label>
+                    {photoLockCenter && !photoLocked && <span className="text-[10px] text-amber-600 dark:text-amber-400">ล็อคกึ่งกลาง X</span>}
+                  </div>
+                  <Slider disabled={!photo || photoLocked || photoLockCenter} min={-3} max={3} step={0.01} value={[crop.ox]}
+                    onValueChange={([v]) => setCrop((p) => ({ ...p, ox: v ?? 0 }))} />
+                  <Input type="number" disabled={!photo || photoLocked || photoLockCenter} min={-3} max={3} step={0.01} value={Math.round(crop.ox * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCrop((p) => ({ ...p, ox: clamp(v, -3, 3) })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <Label className={`text-xs ${photoLocked ? "text-muted-foreground" : ""}`}>รูป บน–ล่าง (Y)</Label>
+                  <Slider disabled={!photo || photoLocked} min={-3} max={3} step={0.01} value={[crop.oy]}
+                    onValueChange={([v]) => setCrop((p) => ({ ...p, oy: v ?? 0 }))} />
+                  <Input type="number" disabled={!photo || photoLocked} min={-3} max={3} step={0.01} value={Math.round(crop.oy * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setCrop((p) => ({ ...p, oy: clamp(v, -3, 3) })); }}
+                    className="h-7 px-2 text-center text-xs" />
                 </div>
               </div>
+            )}
 
-              <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3 pt-1">
-                <Label className="text-xs">ขนาดตัวอักษร</Label>
-                <Slider min={0.4} max={2.5} step={0.01} value={[textAdj.scale]}
-                  onValueChange={([v]) => setTextAdj((p) => ({ ...p, scale: v ?? 1 }))} />
-                <Input type="number" min={0.4} max={2.5} step={0.01} value={textAdj.scale}
-                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, scale: clamp(v, 0.4, 2.5) })); }}
-                  className="h-7 px-2 text-center text-xs" />
-              </div>
+            {/* Section: Name Controls */}
+            {activeLayer === "name" && (
+              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                      <User className="h-4 w-4" />
+                      ส่วนที่ 1: ชื่อผู้วายชนม์
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
+                      nameLocked ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                    }`}>
+                      {nameLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                      {nameLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
+                    </span>
+                  </div>
 
-              <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
-                <div className="flex flex-col">
-                  <Label className={`text-xs ${textLocked || textLockCenter ? "text-muted-foreground" : ""}`}>อักษร ซ้าย–ขวา (X)</Label>
-                  {textLockCenter && !textLocked && <span className="text-[10px] text-amber-600 dark:text-amber-400">ล็อคกึ่งกลาง X</span>}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={nameLocked ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => {
+                        const next = !nameLocked;
+                        setNameLocked(next);
+                        showToast(next ? "🔒 ล็อคตำแหน่งชื่อแล้ว" : "🔓 ปลดล็อคตำแหน่งชื่อแล้ว ลากได้อิสระ");
+                      }}
+                      className="h-7 text-xs"
+                    >
+                      {nameLocked ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
+                      {nameLocked ? "ปลดล็อคเพื่อย้าย" : "ล็อคตำแหน่ง"}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={centerName} className="h-7 text-xs">
+                      <AlignCenter className="h-3 w-3 mr-1" />
+                      จัดกึ่งกลาง
+                    </Button>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none ml-1">
+                      <Switch checked={nameLockCenter} onCheckedChange={setNameLockCenter} disabled={nameLocked} id="nlc" />
+                      <Label htmlFor="nlc" className="cursor-pointer text-xs">ล็อคแกน X</Label>
+                    </label>
+                  </div>
                 </div>
-                <Slider disabled={textLocked || textLockCenter} min={-0.8} max={0.8} step={0.005} value={[textAdj.ox]}
-                  onValueChange={([v]) => setTextAdj((p) => ({ ...p, ox: v ?? 0 }))} />
-                <Input type="number" disabled={textLocked || textLockCenter} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.ox * 100) / 100}
-                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, ox: clamp(v, -0.8, 0.8) })); }}
-                  className="h-7 px-2 text-center text-xs" />
-              </div>
 
-              <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
-                <Label className={`text-xs ${textLocked ? "text-muted-foreground" : ""}`}>อักษร บน–ล่าง (Y)</Label>
-                <Slider disabled={textLocked} min={-0.8} max={0.8} step={0.005} value={[textAdj.oy]}
-                  onValueChange={([v]) => setTextAdj((p) => ({ ...p, oy: v ?? 0 }))} />
-                <Input type="number" disabled={textLocked} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.oy * 100) / 100}
-                  onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, oy: clamp(v, -0.8, 0.8) })); }}
-                  className="h-7 px-2 text-center text-xs" />
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3 pt-1">
+                  <Label className="text-xs">ขนาดตัวอักษรชื่อ</Label>
+                  <Slider min={0.4} max={2.5} step={0.01} value={[textAdj.name.scale]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, name: { ...p.name, scale: v ?? 1 } }))} />
+                  <Input type="number" min={0.4} max={2.5} step={0.01} value={textAdj.name.scale}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, name: { ...p.name, scale: clamp(v, 0.4, 2.5) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <div className="flex flex-col">
+                    <Label className={`text-xs ${nameLocked || nameLockCenter ? "text-muted-foreground" : ""}`}>ชื่อ ซ้าย–ขวา (X)</Label>
+                    {nameLockCenter && !nameLocked && <span className="text-[10px] text-amber-600 dark:text-amber-400">ล็อคกึ่งกลาง X</span>}
+                  </div>
+                  <Slider disabled={nameLocked || nameLockCenter} min={-0.8} max={0.8} step={0.005} value={[textAdj.name.ox]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, name: { ...p.name, ox: v ?? 0 } }))} />
+                  <Input type="number" disabled={nameLocked || nameLockCenter} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.name.ox * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, name: { ...p.name, ox: clamp(v, -0.8, 0.8) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <Label className={`text-xs ${nameLocked ? "text-muted-foreground" : ""}`}>ชื่อ บน–ล่าง (Y)</Label>
+                  <Slider disabled={nameLocked} min={-0.8} max={0.8} step={0.005} value={[textAdj.name.oy]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, name: { ...p.name, oy: v ?? 0 } }))} />
+                  <Input type="number" disabled={nameLocked} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.name.oy * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, name: { ...p.name, oy: clamp(v, -0.8, 0.8) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Section: Dates Controls */}
+            {activeLayer === "dates" && (
+              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                      <Calendar className="h-4 w-4" />
+                      ส่วนที่ 2: วันที่ชาตะ - มรณะ
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
+                      datesLocked ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                    }`}>
+                      {datesLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                      {datesLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={datesLocked ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => {
+                        const next = !datesLocked;
+                        setDatesLocked(next);
+                        showToast(next ? "🔒 ล็อคตำแหน่งชาตะ-มรณะแล้ว" : "🔓 ปลดล็อคตำแหน่งชาตะ-มรณะแล้ว ลากได้อิสระ");
+                      }}
+                      className="h-7 text-xs"
+                    >
+                      {datesLocked ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
+                      {datesLocked ? "ปลดล็อคเพื่อย้าย" : "ล็อคตำแหน่ง"}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={centerDates} className="h-7 text-xs">
+                      <AlignCenter className="h-3 w-3 mr-1" />
+                      จัดกึ่งกลาง
+                    </Button>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none ml-1">
+                      <Switch checked={datesLockCenter} onCheckedChange={setDatesLockCenter} disabled={datesLocked} id="dlc" />
+                      <Label htmlFor="dlc" className="cursor-pointer text-xs">ล็อคแกน X</Label>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3 pt-1">
+                  <Label className="text-xs">ขนาดตัวอักษรชาตะ-มรณะ</Label>
+                  <Slider min={0.4} max={2.5} step={0.01} value={[textAdj.dates.scale]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, dates: { ...p.dates, scale: v ?? 1 } }))} />
+                  <Input type="number" min={0.4} max={2.5} step={0.01} value={textAdj.dates.scale}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, dates: { ...p.dates, scale: clamp(v, 0.4, 2.5) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <div className="flex flex-col">
+                    <Label className={`text-xs ${datesLocked || datesLockCenter ? "text-muted-foreground" : ""}`}>ชาตะ-มรณะ ซ้าย–ขวา (X)</Label>
+                    {datesLockCenter && !datesLocked && <span className="text-[10px] text-amber-600 dark:text-amber-400">ล็อคกึ่งกลาง X</span>}
+                  </div>
+                  <Slider disabled={datesLocked || datesLockCenter} min={-0.8} max={0.8} step={0.005} value={[textAdj.dates.ox]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, dates: { ...p.dates, ox: v ?? 0 } }))} />
+                  <Input type="number" disabled={datesLocked || datesLockCenter} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.dates.ox * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, dates: { ...p.dates, ox: clamp(v, -0.8, 0.8) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <Label className={`text-xs ${datesLocked ? "text-muted-foreground" : ""}`}>ชาตะ-มรณะ บน–ล่าง (Y)</Label>
+                  <Slider disabled={datesLocked} min={-0.8} max={0.8} step={0.005} value={[textAdj.dates.oy]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, dates: { ...p.dates, oy: v ?? 0 } }))} />
+                  <Input type="number" disabled={datesLocked} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.dates.oy * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, dates: { ...p.dates, oy: clamp(v, -0.8, 0.8) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+              </div>
+            )}
+
+            {/* Section: Age Controls */}
+            {activeLayer === "age" && (
+              <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                      <Clock className="h-4 w-4" />
+                      ส่วนที่ 3: สิริอายุ
+                    </span>
+                    <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
+                      ageLocked ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                    }`}>
+                      {ageLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                      {ageLocked ? "ล็อคกึ่งกลาง" : "ปลดล็อค (ลากอิสระ)"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={ageLocked ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => {
+                        const next = !ageLocked;
+                        setAgeLocked(next);
+                        showToast(next ? "🔒 ล็อคตำแหน่งสิริอายุแล้ว" : "🔓 ปลดล็อคตำแหน่งสิริอายุแล้ว ลากได้อิสระ");
+                      }}
+                      className="h-7 text-xs"
+                    >
+                      {ageLocked ? <Unlock className="h-3 w-3 mr-1" /> : <Lock className="h-3 w-3 mr-1" />}
+                      {ageLocked ? "ปลดล็อคเพื่อย้าย" : "ล็อคตำแหน่ง"}
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={centerAge} className="h-7 text-xs">
+                      <AlignCenter className="h-3 w-3 mr-1" />
+                      จัดกึ่งกลาง
+                    </Button>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none ml-1">
+                      <Switch checked={ageLockCenter} onCheckedChange={setAgeLockCenter} disabled={ageLocked} id="alc" />
+                      <Label htmlFor="alc" className="cursor-pointer text-xs">ล็อคแกน X</Label>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3 pt-1">
+                  <Label className="text-xs">ขนาดตัวอักษรอายุ</Label>
+                  <Slider min={0.4} max={2.5} step={0.01} value={[textAdj.age.scale]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, age: { ...p.age, scale: v ?? 1 } }))} />
+                  <Input type="number" min={0.4} max={2.5} step={0.01} value={textAdj.age.scale}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, age: { ...p.age, scale: clamp(v, 0.4, 2.5) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <div className="flex flex-col">
+                    <Label className={`text-xs ${ageLocked || ageLockCenter ? "text-muted-foreground" : ""}`}>อายุ ซ้าย–ขวา (X)</Label>
+                    {ageLockCenter && !ageLocked && <span className="text-[10px] text-amber-600 dark:text-amber-400">ล็อคกึ่งกลาง X</span>}
+                  </div>
+                  <Slider disabled={ageLocked || ageLockCenter} min={-0.8} max={0.8} step={0.005} value={[textAdj.age.ox]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, age: { ...p.age, ox: v ?? 0 } }))} />
+                  <Input type="number" disabled={ageLocked || ageLockCenter} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.age.ox * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, age: { ...p.age, ox: clamp(v, -0.8, 0.8) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+
+                <div className="grid grid-cols-[120px_1fr_84px] items-center gap-3">
+                  <Label className={`text-xs ${ageLocked ? "text-muted-foreground" : ""}`}>อายุ บน–ล่าง (Y)</Label>
+                  <Slider disabled={ageLocked} min={-0.8} max={0.8} step={0.005} value={[textAdj.age.oy]}
+                    onValueChange={([v]) => setTextAdj((p) => ({ ...p, age: { ...p.age, oy: v ?? 0 } }))} />
+                  <Input type="number" disabled={ageLocked} min={-0.8} max={0.8} step={0.01} value={Math.round(textAdj.age.oy * 100) / 100}
+                    onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) setTextAdj((p) => ({ ...p, age: { ...p.age, oy: clamp(v, -0.8, 0.8) } })); }}
+                    className="h-7 px-2 text-center text-xs" />
+                </div>
+              </div>
+            )}
 
             {/* Section: Frame Controls */}
             <div className="space-y-3 rounded-lg border border-border/70 bg-muted/20 p-4">

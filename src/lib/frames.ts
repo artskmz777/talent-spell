@@ -50,4 +50,7 @@ export const SIZES: PrintSize[] = [
   { id: "12x18", label: "12×18 นิ้ว", w: 12, h: 18 },
 ];
 export const DPI = 300;
-export const pixelSize = (s: PrintSize) => ({ w: Math.round(s.w * DPI), h: Math.round(s.h * DPI) });
+export const pixelSize = (s: PrintSize) => {
+  if (s.id === "a4") return { w: 2480, h: 3508 };
+  return { w: Math.round(s.w * DPI), h: Math.round(s.h * DPI) };
+};
